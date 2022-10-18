@@ -945,7 +945,7 @@ public class YarnClusterDescriptor implements ClusterDescriptor<ApplicationId> {
 		Utils.setupYarnClassPath(yarnConfiguration, appMasterEnv, classPathSeparator);
 
 		// set environment for MT
-		Utils.setupMTEnvironments(appMasterEnv);
+		BootstrapTools.setupMTEnvironments(appMasterEnv);
 
 		amContainer.setEnvironment(appMasterEnv);
 
