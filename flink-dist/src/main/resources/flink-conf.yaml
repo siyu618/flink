@@ -252,3 +252,6 @@ jobmanager.execution.failover-strategy: region
 # Interval in milliseconds for refreshing the monitored directories.
 #historyserver.archive.fs.refresh-interval: 10000
 
+# If the target Yarn cluster is on Windows System
+#yarn.container.is.windows: false
+

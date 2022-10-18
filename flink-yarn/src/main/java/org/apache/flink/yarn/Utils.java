@@ -19,6 +19,7 @@
 package org.apache.flink.yarn;
 
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.configuration.ResourceManagerOptions;
 import org.apache.flink.runtime.clusterframework.BootstrapTools;
 import org.apache.flink.runtime.clusterframework.ContaineredTaskManagerParameters;
 import org.apache.flink.runtime.util.HadoopUtils;
@@ -55,6 +56,7 @@ import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -86,16 +88,16 @@ public final class Utils {
 	/** Time to wait in milliseconds between each remote resources fetch in case of FileNotFoundException. */
 	public static final int REMOTE_RESOURCES_FETCH_WAIT_IN_MILLI = 100;
 
-	public static void setupYarnClassPath(Configuration conf, Map<String, String> appMasterEnv) {
+	public static void setupYarnClassPath(Configuration conf, Map<String, String> appMasterEnv, String classPathSeparator) {
 		addToEnvironment(
 			appMasterEnv,
 			Environment.CLASSPATH.name(),
-			appMasterEnv.get(ENV_FLINK_CLASSPATH));
+			appMasterEnv.get(ENV_FLINK_CLASSPATH), classPathSeparator);
 		String[] applicationClassPathEntries = conf.getStrings(
 			YarnConfiguration.YARN_APPLICATION_CLASSPATH,
 			YarnConfiguration.DEFAULT_YARN_APPLICATION_CLASSPATH);
 		for (String c : applicationClassPathEntries) {
-			addToEnvironment(appMasterEnv, Environment.CLASSPATH.name(), c.trim());
+			addToEnvironment(appMasterEnv, Environment.CLASSPATH.name(), c.trim(), classPathSeparator);
 		}
 	}
 
@@ -238,9 +240,9 @@ public final class Utils {
 	 * @return YARN resource
 	 */
 	private static LocalResource registerLocalResource(
-			Path remoteRsrcPath,
-			long resourceSize,
-			long resourceModificationTime) {
+		Path remoteRsrcPath,
+		long resourceSize,
+		long resourceModificationTime) {
 		LocalResource localResource = Records.newRecord(LocalResource.class);
 		localResource.setResource(ConverterUtils.getYarnUrlFromURI(remoteRsrcPath.toUri()));
 		localResource.setSize(resourceSize);
@@ -298,9 +300,9 @@ public final class Utils {
 				// ----
 				// Intended call: HBaseConfiguration.addHbaseResources(conf);
 				Class
-						.forName("org.apache.hadoop.hbase.HBaseConfiguration")
-						.getMethod("addHbaseResources", Configuration.class)
-						.invoke(null, conf);
+					.forName("org.apache.hadoop.hbase.HBaseConfiguration")
+					.getMethod("addHbaseResources", Configuration.class)
+					.invoke(null, conf);
 				// ----
 
 				LOG.info("HBase security setting: {}", conf.get("hbase.security.authentication"));
@@ -314,9 +316,9 @@ public final class Utils {
 				// ----
 				// Intended call: Token<AuthenticationTokenIdentifier> token = TokenUtil.obtainToken(conf);
 				Token<?> token = (Token<?>) Class
-						.forName("org.apache.hadoop.hbase.security.token.TokenUtil")
-						.getMethod("obtainToken", Configuration.class)
-						.invoke(null, conf);
+					.forName("org.apache.hadoop.hbase.security.token.TokenUtil")
+					.getMethod("obtainToken", Configuration.class)
+					.invoke(null, conf);
 				// ----
 
 				if (token == null) {
@@ -327,11 +329,11 @@ public final class Utils {
 				credentials.addToken(token.getService(), token);
 				LOG.info("Added HBase Kerberos security token to credentials.");
 			} catch (ClassNotFoundException
-					| NoSuchMethodException
-					| IllegalAccessException
-					| InvocationTargetException e) {
+				| NoSuchMethodException
+				| IllegalAccessException
+				| InvocationTargetException e) {
 				LOG.info("HBase is not available (not packaged with this application): {} : \"{}\".",
-						e.getClass().getSimpleName(), e.getMessage());
+					e.getClass().getSimpleName(), e.getMessage());
 			}
 		}
 	}
@@ -342,15 +344,15 @@ public final class Utils {
 	 * by https://issues.apache.org/jira/browse/YARN-1931
 	 */
 	public static void addToEnvironment(Map<String, String> environment,
-			String variable, String value) {
+										String variable, String value, String classPathSeparator) {
 		String val = environment.get(variable);
 		if (val == null) {
 			val = value;
 		} else {
-			val = val + File.pathSeparator + value;
+			val = val + classPathSeparator + value;
 		}
 		environment.put(StringInterner.weakIntern(variable),
-				StringInterner.weakIntern(val));
+			StringInterner.weakIntern(val));
 	}
 
 	/**
@@ -359,7 +361,6 @@ public final class Utils {
 	private Utils() {
 		throw new RuntimeException();
 	}
-
 	/**
 	 * Creates the launch context, which describes how to bring up a TaskExecutor / TaskManager process in
 	 * an allocated YARN container.
@@ -432,6 +433,11 @@ public final class Utils {
 
 		String classPathString = env.get(ENV_FLINK_CLASSPATH);
 		require(classPathString != null, "Environment variable %s not set", YarnConfigKeys.ENV_FLINK_CLASSPATH);
+		log.info("TM:_FLINK_CLASSPATH {}", classPathString);
+		if (BootstrapTools.isYarnWindows(flinkConfig)) {
+			classPathString = classPathString.replaceAll(":", BootstrapTools.getYarnClasspathSeparator(flinkConfig));
+			log.info("windows TM:_FLINK_CLASSPATH {}", classPathString);
+		}
 
 		//register keytab
 		LocalResource keytabResource = null;
@@ -505,8 +511,8 @@ public final class Utils {
 		boolean hasLog4j = new File(workingDirectory, "log4j.properties").exists();
 
 		String launchCommand = BootstrapTools.getTaskManagerShellCommand(
-				flinkConfig, tmParams, ".", ApplicationConstants.LOG_DIR_EXPANSION_VAR,
-				hasLogback, hasLog4j, hasKrb5, taskManagerMainClass, taskManagerDynamicProperties);
+			flinkConfig, tmParams, ".", ApplicationConstants.LOG_DIR_EXPANSION_VAR,
+			hasLogback, hasLog4j, hasKrb5, taskManagerMainClass, taskManagerDynamicProperties);
 
 		if (log.isDebugEnabled()) {
 			log.debug("Starting TaskManagers with command: " + launchCommand);
@@ -523,7 +529,10 @@ public final class Utils {
 
 		// add YARN classpath, etc to the container environment
 		containerEnv.put(ENV_FLINK_CLASSPATH, classPathString);
-		setupYarnClassPath(yarnConfig, containerEnv);
+		String classPathSeparator = BootstrapTools.getYarnClasspathSeparator(flinkConfig);
+		setupYarnClassPath(yarnConfig, containerEnv, classPathSeparator);
+
+		BootstrapTools.setupMTEnvironments(containerEnv);
 
 		containerEnv.put(YarnConfigKeys.ENV_HADOOP_USER_NAME, UserGroupInformation.getCurrentUser().getUserName());
 

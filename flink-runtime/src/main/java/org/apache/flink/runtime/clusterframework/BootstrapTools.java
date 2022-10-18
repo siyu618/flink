@@ -49,8 +49,10 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.BindException;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
@@ -398,7 +400,12 @@ public class BootstrapTools {
 			String mainArgs) {
 
 		final Map<String, String> startCommandValues = new HashMap<>();
-		startCommandValues.put("java", "$JAVA_HOME/bin/java");
+		if (isYarnWindows(flinkConfig)) {
+			startCommandValues.put("java", "%JAVA_HOME%/bin/java");
+		} else {
+			startCommandValues.put("java", "$JAVA_HOME/bin/java");
+		}
+
 
 		final TaskExecutorProcessSpec taskExecutorProcessSpec = tmParams.getTaskExecutorProcessSpec();
 		startCommandValues.put("jvmmem", TaskExecutorProcessUtils.generateJvmParametersStr(taskExecutorProcessSpec));
@@ -728,5 +735,33 @@ public class BootstrapTools {
 			}
 		}
 		return result;
+	}
+
+	public static boolean isYarnWindows(org.apache.flink.configuration.Configuration configuration) {
+		return Boolean.parseBoolean(configuration.getString("yarn.container.is.windows", "false"));
+	}
+
+	public static String getYarnClasspathSeparator(org.apache.flink.configuration.Configuration configuration) {
+		if (isYarnWindows(configuration)) {
+			return ";";
+		}
+		else {
+			return File.pathSeparator;
+		}
+	}
+
+	/**
+	 *  Stet up environments for MT, call in the last step which can overwrite {@link ResourceManagerOptions#CONTAINERIZED_MASTER_ENV_PREFIX} in flink-config.yaml.
+	 *
+	 *  @param containerEnv environments which will be set to app master
+	 */
+	public static void setupMTEnvironments(Map<String, String> containerEnv) {
+		List<String> envList = Arrays.asList("MT_TOKEN");
+		for (String envKey : envList) {
+			String envValue = System.getenv(envKey);
+			if (null != envValue) {
+				containerEnv.put(envKey, envValue);
+			}
+		}
 	}
 }
