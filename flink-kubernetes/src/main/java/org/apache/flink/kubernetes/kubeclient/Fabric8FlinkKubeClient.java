@@ -120,7 +120,10 @@ public class Fabric8FlinkKubeClient implements FlinkKubeClient {
                 KubernetesUtils.tryToGetPrettyPrintYaml(deployment));
         final Deployment createdDeployment =
                 this.internalClient.apps().deployments().create(deployment);
-
+        LOG.debug(
+                "Create deployment with spec {}{}",
+                System.lineSeparator(),
+                KubernetesUtils.tryToGetPrettyPrintYaml(createdDeployment));
         // Note that we should use the uid of the created Deployment for the OwnerReference.
         setOwnerReference(createdDeployment, accompanyingResources);
 
